@@ -1,0 +1,49 @@
+{
+  "name": "k8s-port-forward-mcp",
+  "version": "0.0.6",
+  "description": "Kubernetes Port Forward — MCP Server: port-forward Kubernetes services with terminal integration",
+  "main": "dist/index.js",
+  "bin": {
+    "k8s-port-forward-mcp": "dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "kubernetes",
+    "k8s",
+    "port-forward",
+    "terminal"
+  ],
+  "author": "oijusti",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oijusti/k8s-port-forward-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/oijusti/k8s-port-forward-mcp/issues"
+  },
+  "homepage": "https://github.com/oijusti/k8s-port-forward-mcp#readme",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
