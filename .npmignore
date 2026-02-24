@@ -11,3 +11,6 @@ pnpm-debug.log*
 .vscode/
 .git/
 .gitignore
+
+# Registry metadata (published separately via mcp-publisher)
+server.json

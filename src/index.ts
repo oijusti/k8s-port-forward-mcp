@@ -22,7 +22,7 @@ import { openLogsInTerminal, isValidPort } from "./util.js";
 const server = new Server(
   {
     name: "k8s-port-forward-mcp",
-    version: "0.0.7",
+    version: "0.0.8",
   },
   {
     capabilities: {

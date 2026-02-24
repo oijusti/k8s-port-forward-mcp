@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.oijusti/k8s-port-forward-mcp",
+  "description": "Kubernetes Port Forward — MCP Server: port-forward Kubernetes services with terminal integration",
+  "repository": {
+    "url": "https://github.com/oijusti/k8s-port-forward-mcp",
+    "source": "github"
+  },
+  "version": "0.0.8",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "k8s-port-forward-mcp",
+      "version": "0.0.8",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 {
   "name": "k8s-port-forward-mcp",
-  "version": "0.0.7",
+  "version": "0.0.8",
+  "mcpName": "io.github.oijusti/k8s-port-forward-mcp",
   "description": "Kubernetes Port Forward — MCP Server: port-forward Kubernetes services with terminal integration",
   "main": "dist/index.js",
   "bin": {
@@ -44,6 +45,6 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.4.0"
   }
 }
