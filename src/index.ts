@@ -8,6 +8,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import {
@@ -27,9 +29,16 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
+      resources: {},
     },
   },
 );
+
+const RESOURCES = {
+  namespaces: "k8s://namespaces",
+  services: "k8s://services",
+  activePortForwards: "k8s://port-forwards/active",
+} as const;
 
 const serviceConfigSchema = {
   type: "object" as const,
@@ -132,14 +141,121 @@ interface ResolvedService {
   environment: string;
 }
 
+interface ActivePortForward {
+  namespace: string;
+  podName: string;
+  localPort: number;
+  remotePort: number;
+  label: string;
+  environment: string;
+  pid: number | undefined;
+}
+
 // Global process tracker for stopping port-forwards
 const portForwardProcesses: ReturnType<typeof spawn>[] = [];
+const activePortForwards: ActivePortForward[] = [];
+
+function toTextResult(text: string) {
+  return {
+    content: [{ type: "text" as const, text }],
+  };
+}
+
+async function buildNamespacesResourceText(): Promise<string> {
+  const namespaces = await getNamespaces();
+  return JSON.stringify({ namespaces }, null, 2);
+}
+
+async function buildServicesResourceText(): Promise<string> {
+  const podsData = await getPods(undefined);
+  const servicesMap = parseServicesMap(podsData, null);
+  const services = Array.from(servicesMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([shortName, envMap]) => ({
+      shortName,
+      environments: Object.entries(envMap)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([environment, details]) => ({
+          environment,
+          namespace: details.namespace,
+          serviceName: details.serviceName,
+          id: details.id,
+        })),
+    }));
+  return JSON.stringify({ services }, null, 2);
+}
+
+function buildActivePortForwardsResourceText(): string {
+  const active = activePortForwards
+    .slice()
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((entry) => ({
+      namespace: entry.namespace,
+      podName: entry.podName,
+      localPort: entry.localPort,
+      remotePort: entry.remotePort,
+      label: entry.label,
+      environment: entry.environment,
+      pid: entry.pid,
+    }));
+  return JSON.stringify({ active }, null, 2);
+}
+
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  return {
+    resources: [
+      {
+        uri: RESOURCES.namespaces,
+        name: "Kubernetes Namespaces",
+        description: "Current namespaces in the configured Kubernetes context.",
+        mimeType: "application/json",
+      },
+      {
+        uri: RESOURCES.services,
+        name: "Kubernetes Services Map",
+        description:
+          "Resolved short service names with environments and namespaces.",
+        mimeType: "application/json",
+      },
+      {
+        uri: RESOURCES.activePortForwards,
+        name: "Active Port Forwards",
+        description: "Currently running port-forward sessions started by MCP.",
+        mimeType: "application/json",
+      },
+    ],
+  };
+});
+
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const uri = request.params.uri;
+
+  if (uri === RESOURCES.namespaces) {
+    const text = await buildNamespacesResourceText();
+    return {
+      contents: [{ uri, mimeType: "application/json", text }],
+    };
+  }
+
+  if (uri === RESOURCES.services) {
+    const text = await buildServicesResourceText();
+    return {
+      contents: [{ uri, mimeType: "application/json", text }],
+    };
+  }
+
+  if (uri === RESOURCES.activePortForwards) {
+    const text = buildActivePortForwardsResourceText();
+    return {
+      contents: [{ uri, mimeType: "application/json", text }],
+    };
+  }
+
+  throw new Error(`Unknown resource URI: ${uri}`);
+});
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  const result = (text: string) => ({
-    content: [{ type: "text" as const, text }],
-  });
 
   if (name === "list_k8s_namespaces") {
     try {
@@ -148,9 +264,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         namespaces.length > 0
           ? `Namespaces:\n${namespaces.map((n) => `- ${n}`).join("\n")}`
           : "No namespaces found.";
-      return result(text);
+      return toTextResult(text);
     } catch (err) {
-      return result(
+      return toTextResult(
         `Failed to list namespaces: ${err instanceof Error ? err.message : err}`,
       );
     }
@@ -173,9 +289,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           .join(", ");
         lines.push(`- ${shortName}: ${envList}`);
       }
-      return result(lines.length > 1 ? lines.join("\n") : "No services found.");
+      return toTextResult(
+        lines.length > 1 ? lines.join("\n") : "No services found.",
+      );
     } catch (err) {
-      return result(
+      return toTextResult(
         `Failed to list services: ${err instanceof Error ? err.message : err}`,
       );
     }
@@ -184,7 +302,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "start_k8s_port_forward") {
     const services = args?.services;
     if (!Array.isArray(services) || services.length === 0) {
-      return result(
+      return toTextResult(
         "Error: 'services' must be a non-empty array of objects with serviceName and localPort.",
       );
     }
@@ -271,7 +389,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (errors.length > 0) {
-      return result(`Validation/resolution errors:\n${errors.join("\n")}`);
+      return toTextResult(`Validation/resolution errors:\n${errors.join("\n")}`);
     }
 
     const shutdown = () => {
@@ -313,6 +431,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         stdio: ["ignore", "pipe", "pipe"],
       });
       portForwardProcesses.push(p);
+      activePortForwards.push({
+        namespace: r.namespace,
+        podName: r.podName,
+        localPort: r.localPort,
+        remotePort: r.remotePort,
+        label: r.label,
+        environment: r.environment,
+        pid: p.pid,
+      });
 
       const prefix = `[${r.label}]`;
       // MCP uses stdout for protocol; write kubectl output to stderr so it doesn't break the stream
@@ -326,6 +453,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         process.stderr.write(
           `${prefix} port-forward exited with code ${code}\n`,
         );
+        const idx = activePortForwards.findIndex((item) => item.pid === p.pid);
+        if (idx >= 0) {
+          activePortForwards.splice(idx, 1);
+        }
       });
     }
 
@@ -340,7 +471,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       commands.join("\n") +
       "\n```";
 
-    return result(
+    return toTextResult(
       `Port forwarding started for ${resolved.length} service(s):\n${summary}\n\n${commandsBlock}`,
     );
   }
@@ -371,16 +502,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // Clear the list
     portForwardProcesses.length = 0;
+    activePortForwards.length = 0;
 
     const message =
       killedCount > 0
         ? `Stopped ${killedCount} port-forward process(es).`
         : "No active port-forwards to stop.";
     process.stderr.write(`${message}\n`);
-    return result(message);
+    return toTextResult(message);
   }
 
-  return result(`Unknown tool: ${name}`);
+  return toTextResult(`Unknown tool: ${name}`);
 });
 
 async function main() {
